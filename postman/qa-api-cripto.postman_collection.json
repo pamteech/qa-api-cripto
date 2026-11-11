@@ -1,0 +1,1101 @@
+{
+  "info": {
+    "name": "QA API Cripto",
+    "description": "Testes de contrato, sanidade de dados e casos negativos para APIs públicas de preço de cripto (CoinGecko, Binance, mempool.space). Gerada por scripts/build-collection.mjs.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const nome = pm.info.requestName;",
+          "const chave = 'tentativas_' + nome;",
+          "if (pm.response.code === 429) {",
+          "  const n = Number(pm.collectionVariables.get(chave) || 0);",
+          "  const retryAfter = Number(pm.response.headers.get('Retry-After')) || 0;",
+          "  if (n < 3) {",
+          "    const espera = Math.min(retryAfter > 0 ? retryAfter * 1000 : 3000 * Math.pow(2, n), 30000);",
+          "    pm.collectionVariables.set(chave, n + 1);",
+          "    pm.test('[LIMITE] 429 em \"' + nome + '\": nova tentativa ' + (n + 1) + ' de 3 após ' + espera + ' ms', function () {});",
+          "    postman.setNextRequest(nome);",
+          "    setTimeout(function () {}, espera);",
+          "  } else {",
+          "    pm.collectionVariables.unset(chave);",
+          "    pm.test('[LIMITE] 429 persistente em \"' + nome + '\": limite da API pública, não e defeito do produto', function () {});",
+          "  }",
+          "} else {",
+          "  pm.collectionVariables.unset(chave);",
+          "  pm.test('Tempo de resposta abaixo de ' + pm.environment.get('limite_ms') + ' ms', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(Number(pm.environment.get('limite_ms') || 3000));",
+          "  });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "cg_btc_usd",
+      "value": ""
+    },
+    {
+      "key": "bn_btc_usdt",
+      "value": ""
+    },
+    {
+      "key": "mp_btc_usd",
+      "value": ""
+    },
+    {
+      "key": "mp_tip",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "CoinGecko",
+      "description": "API pública de preços agregados. Sem chave, com limite baixo de chamadas por minuto.",
+      "item": [
+        {
+          "name": "CG - ping",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{coingecko_url}}/ping",
+              "host": [
+                "{{coingecko_url}}"
+              ],
+              "path": [
+                "ping"
+              ]
+            },
+            "description": "Disponibilidade basica do servico."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Responde o campo gecko_says', () => pm.expect(pm.response.json().gecko_says).to.be.a('string').and.not.empty);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "CG - preço simples BTC e ETH em USD e BRL",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{coingecko_url}}/simple/price?ids=bitcoin,ethereum&vs_currencies=usd,brl&include_last_updated_at=true&include_24hr_change=true",
+              "host": [
+                "{{coingecko_url}}"
+              ],
+              "path": [
+                "simple",
+                "price"
+              ],
+              "query": [
+                {
+                  "key": "ids",
+                  "value": "bitcoin,ethereum"
+                },
+                {
+                  "key": "vs_currencies",
+                  "value": "usd,brl"
+                },
+                {
+                  "key": "include_last_updated_at",
+                  "value": "true"
+                },
+                {
+                  "key": "include_24hr_change",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "Oráculos: contrato, valores positivos, ordem relativa, câmbio implícito coerente e frescor do dado."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    const body = pm.response.json();",
+                  "    const moeda = { type: 'object', required: ['usd', 'brl', 'last_updated_at'], properties: { usd: { type: 'number', exclusiveMinimum: 0 }, brl: { type: 'number', exclusiveMinimum: 0 }, last_updated_at: { type: 'integer' }, usd_24h_change: { type: 'number' }, brl_24h_change: { type: 'number' } } };",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Contrato (JSON Schema) válido', () => pm.response.to.have.jsonSchema({ type: 'object', required: ['bitcoin', 'ethereum'], properties: { bitcoin: moeda, ethereum: moeda } }));",
+                  "    pm.test('Preços maiores que zero', () => { ['bitcoin', 'ethereum'].forEach((c) => { pm.expect(body[c].usd).to.be.above(0); pm.expect(body[c].brl).to.be.above(0); }); });",
+                  "    pm.test('BTC vale mais que ETH nas duas moedas', () => { pm.expect(body.bitcoin.usd).to.be.above(body.ethereum.usd); pm.expect(body.bitcoin.brl).to.be.above(body.ethereum.brl); });",
+                  "    pm.test('Câmbio implicito BRL/USD coerente entre moedas (entre 3 e 10, mesmo valor para BTC e ETH)', () => {",
+                  "      const rBtc = body.bitcoin.brl / body.bitcoin.usd; const rEth = body.ethereum.brl / body.ethereum.usd;",
+                  "      pm.expect(rBtc).to.be.within(3, 10); pm.expect(Math.abs(rBtc - rEth) / rBtc).to.be.below(0.02);",
+                  "    });",
+                  "    pm.test('Cotação atualizada nos últimos ' + pm.environment.get('frescor_s') + ' s', () => {",
+                  "      const agora = Math.floor(Date.now() / 1000);",
+                  "      pm.expect(agora - body.bitcoin.last_updated_at).to.be.below(Number(pm.environment.get('frescor_s')));",
+                  "    });",
+                  "    pm.test('Variação de 24h dentro de faixa plausível (-50% a +50%)', () => pm.expect(body.bitcoin.usd_24h_change).to.be.within(-50, 50));",
+                  "    pm.collectionVariables.set('cg_btc_usd', body.bitcoin.usd);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "CG - mercados BTC e ETH",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{coingecko_url}}/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&order=market_cap_desc",
+              "host": [
+                "{{coingecko_url}}"
+              ],
+              "path": [
+                "coins",
+                "markets"
+              ],
+              "query": [
+                {
+                  "key": "vs_currency",
+                  "value": "usd"
+                },
+                {
+                  "key": "ids",
+                  "value": "bitcoin,ethereum"
+                },
+                {
+                  "key": "order",
+                  "value": "market_cap_desc"
+                }
+              ]
+            },
+            "description": "Coerencia interna de dados de mercado."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Contrato (JSON Schema) válido', () => pm.response.to.have.jsonSchema({ type: 'array', minItems: 2, maxItems: 2, items: { type: 'object', required: ['id', 'symbol', 'current_price', 'market_cap', 'market_cap_rank', 'high_24h', 'low_24h', 'last_updated'], properties: { id: { type: 'string' }, symbol: { type: 'string' }, current_price: { type: 'number', exclusiveMinimum: 0 }, market_cap: { type: 'number', exclusiveMinimum: 0 }, market_cap_rank: { type: 'integer', minimum: 1 }, high_24h: { type: 'number' }, low_24h: { type: 'number' }, last_updated: { type: 'string' } } } }));",
+                  "    pm.test('Bitcoin é o primeiro em valor de mercado', () => { pm.expect(body[0].id).to.eql('bitcoin'); pm.expect(body[0].market_cap_rank).to.eql(1); });",
+                  "    pm.test('Máxima de 24h maior ou igual a mínima', () => body.forEach((c) => pm.expect(c.high_24h).to.be.at.least(c.low_24h)));",
+                  "    pm.test('Preço atual dentro da faixa de 24h (tolerância de 1%)', () => body.forEach((c) => pm.expect(c.current_price).to.be.within(c.low_24h * 0.99, c.high_24h * 1.01)));",
+                  "    pm.test('Valor de mercado coerente com preço x oferta circulante (tolerância de 2%)', () => body.forEach((c) => {",
+                  "      if (c.circulating_supply) pm.expect(Math.abs(c.market_cap - c.current_price * c.circulating_supply) / c.market_cap).to.be.below(0.02);",
+                  "    }));",
+                  "    pm.test('last_updated em ISO 8601 e recente', () => body.forEach((c) => {",
+                  "      const t = Date.parse(c.last_updated); pm.expect(t).to.not.be.NaN;",
+                  "      pm.expect(Date.now() - t).to.be.below(Number(pm.environment.get('frescor_s')) * 1000);",
+                  "    }));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "CG - moedas de cotação suportadas",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{coingecko_url}}/simple/supported_vs_currencies",
+              "host": [
+                "{{coingecko_url}}"
+              ],
+              "path": [
+                "simple",
+                "supported_vs_currencies"
+              ]
+            },
+            "description": "Garante que as moedas usadas pelos outros testes continuam suportadas."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Lista de strings em minúsculas', () => { pm.expect(body).to.be.an('array').that.is.not.empty; body.forEach((c) => pm.expect(c).to.match(/^[a-z0-9]+$/)); });",
+                  "    pm.test('Inclui usd, brl e btc', () => pm.expect(body).to.include.members(['usd', 'brl', 'btc']));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "CG - negativo: moeda inexistente",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{coingecko_url}}/simple/price?ids=moeda-que-nao-existe-qa&vs_currencies=usd",
+              "host": [
+                "{{coingecko_url}}"
+              ],
+              "path": [
+                "simple",
+                "price"
+              ],
+              "query": [
+                {
+                  "key": "ids",
+                  "value": "moeda-que-nao-existe-qa"
+                },
+                {
+                  "key": "vs_currencies",
+                  "value": "usd"
+                }
+              ]
+            },
+            "description": "A API não retorna 404 aqui. O oráculo é não fabricar um preço."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('Status 200 (comportamento documentado da API para id desconhecido)', () => pm.response.to.have.status(200));",
+                  "    pm.test('Não inventa preço: objeto vazio', () => pm.expect(body).to.eql({}));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "CG - negativo: moeda de cotação inválida",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{coingecko_url}}/simple/price?ids=bitcoin&vs_currencies=xyz",
+              "host": [
+                "{{coingecko_url}}"
+              ],
+              "path": [
+                "simple",
+                "price"
+              ],
+              "query": [
+                {
+                  "key": "ids",
+                  "value": "bitcoin"
+                },
+                {
+                  "key": "vs_currencies",
+                  "value": "xyz"
+                }
+              ]
+            },
+            "description": "Parametro de cotação inválido não pode gerar valor."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Retorna bitcoin sem nenhum preço', () => { pm.expect(body).to.have.property('bitcoin'); pm.expect(body.bitcoin).to.eql({}); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "CG - negativo: detalhe de moeda inexistente",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{coingecko_url}}/coins/moeda-que-nao-existe-qa",
+              "host": [
+                "{{coingecko_url}}"
+              ],
+              "path": [
+                "coins",
+                "moeda-que-nao-existe-qa"
+              ]
+            },
+            "description": "Recurso inexistente deve responder 404."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    pm.test('Status 404', () => pm.response.to.have.status(404));",
+                  "    pm.test('Mensagem de erro clara', () => pm.expect(pm.response.json().error).to.match(/not found/i));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Binance (dados de mercado)",
+      "description": "Endpoint público data-api.binance.vision, sem chave. O dominio api.binance.com bloqueia IPs dos EUA (HTTP 451), como os do GitHub Actions.",
+      "item": [
+        {
+          "name": "BN - ping",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{binance_url}}/api/v3/ping",
+              "host": [
+                "{{binance_url}}"
+              ],
+              "path": [
+                "api",
+                "v3",
+                "ping"
+              ]
+            },
+            "description": "Disponibilidade."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Corpo vazio {}', () => pm.expect(pm.response.json()).to.eql({}));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "BN - horário do servidor",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{binance_url}}/api/v3/time",
+              "host": [
+                "{{binance_url}}"
+              ],
+              "path": [
+                "api",
+                "v3",
+                "time"
+              ]
+            },
+            "description": "Relógio dessincronizado quebra assinaturas e janelas de tempo."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Contrato (JSON Schema) válido', () => pm.response.to.have.jsonSchema({ type: 'object', required: ['serverTime'], properties: { serverTime: { type: 'integer' } } }));",
+                  "    pm.test('Relógio do servidor a menos de 60 s do relógio local', () => pm.expect(Math.abs(Date.now() - body.serverTime)).to.be.below(60000));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "BN - preço BTCUSDT",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{binance_url}}/api/v3/ticker/price?symbol=BTCUSDT",
+              "host": [
+                "{{binance_url}}"
+              ],
+              "path": [
+                "api",
+                "v3",
+                "ticker",
+                "price"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "BTCUSDT"
+                }
+              ]
+            },
+            "description": "Preço vem como string decimal com 8 casas, para não perder precisao."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Contrato (JSON Schema) válido', () => pm.response.to.have.jsonSchema({ type: 'object', required: ['symbol', 'price'], properties: { symbol: { const: 'BTCUSDT' }, price: { type: 'string', pattern: '^[0-9]+\\\\.[0-9]{8}$' } } }));",
+                  "    pm.test('Preço maior que zero', () => pm.expect(parseFloat(body.price)).to.be.above(0));",
+                  "    pm.collectionVariables.set('bn_btc_usdt', parseFloat(body.price));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "BN - estatisticas 24h BTCUSDT",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{binance_url}}/api/v3/ticker/24hr?symbol=BTCUSDT",
+              "host": [
+                "{{binance_url}}"
+              ],
+              "path": [
+                "api",
+                "v3",
+                "ticker",
+                "24hr"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "BTCUSDT"
+                }
+              ]
+            },
+            "description": "Invariantes aritmeticos e temporais do ticker."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    const b = pm.response.json(); const n = (k) => parseFloat(b[k]);",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Contrato (JSON Schema) válido', () => pm.response.to.have.jsonSchema({ type: 'object', required: ['symbol', 'lastPrice', 'openPrice', 'highPrice', 'lowPrice', 'bidPrice', 'askPrice', 'priceChange', 'volume', 'openTime', 'closeTime', 'count'], properties: { symbol: { const: 'BTCUSDT' }, openTime: { type: 'integer' }, closeTime: { type: 'integer' }, count: { type: 'integer', minimum: 1 } } }));",
+                  "    pm.test('Mínima <= último preço <= máxima', () => { pm.expect(n('lastPrice')).to.be.at.least(n('lowPrice')); pm.expect(n('lastPrice')).to.be.at.most(n('highPrice')); });",
+                  "    pm.test('Melhor compra menor que melhor venda (spread positivo)', () => pm.expect(n('bidPrice')).to.be.below(n('askPrice')));",
+                  "    pm.test('priceChange = lastPrice - openPrice', () => pm.expect(n('priceChange')).to.be.closeTo(n('lastPrice') - n('openPrice'), 0.01));",
+                  "    pm.test('Janela de 24h coerente e fechando agora', () => { pm.expect(b.closeTime - b.openTime).to.be.within(86390000, 86410000); pm.expect(Math.abs(Date.now() - b.closeTime)).to.be.below(120000); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "BN - livro de ofertas BTCUSDT",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{binance_url}}/api/v3/depth?symbol=BTCUSDT&limit=5",
+              "host": [
+                "{{binance_url}}"
+              ],
+              "path": [
+                "api",
+                "v3",
+                "depth"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "BTCUSDT"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            },
+            "description": "Livro cruzado ou fora de ordem indica dado corrompido."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    const b = pm.response.json();",
+                  "    const nivel = { type: 'array', minItems: 2, maxItems: 2, items: { type: 'string', pattern: '^[0-9]+\\\\.[0-9]+$' } };",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Contrato (JSON Schema) válido com 5 niveis', () => pm.response.to.have.jsonSchema({ type: 'object', required: ['lastUpdateId', 'bids', 'asks'], properties: { lastUpdateId: { type: 'integer' }, bids: { type: 'array', minItems: 5, maxItems: 5, items: nivel }, asks: { type: 'array', minItems: 5, maxItems: 5, items: nivel } } }));",
+                  "    const bids = b.bids.map((x) => parseFloat(x[0])); const asks = b.asks.map((x) => parseFloat(x[0]));",
+                  "    pm.test('Compras em ordem decrescente', () => bids.slice(1).forEach((p, i) => pm.expect(p).to.be.below(bids[i])));",
+                  "    pm.test('Vendas em ordem crescente', () => asks.slice(1).forEach((p, i) => pm.expect(p).to.be.above(asks[i])));",
+                  "    pm.test('Livro não cruzado: melhor compra < melhor venda', () => pm.expect(bids[0]).to.be.below(asks[0]));",
+                  "    pm.test('Quantidades maiores que zero', () => b.bids.concat(b.asks).forEach((x) => pm.expect(parseFloat(x[1])).to.be.above(0)));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "BN - candles de 1h BTCUSDT",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{binance_url}}/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=3",
+              "host": [
+                "{{binance_url}}"
+              ],
+              "path": [
+                "api",
+                "v3",
+                "klines"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "BTCUSDT"
+                },
+                {
+                  "key": "interval",
+                  "value": "1h"
+                },
+                {
+                  "key": "limit",
+                  "value": "3"
+                }
+              ]
+            },
+            "description": "Invariantes OHLC."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    const k = pm.response.json();",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Retorna exatamente 3 candles de 12 campos', () => { pm.expect(k).to.have.lengthOf(3); k.forEach((c) => pm.expect(c).to.have.lengthOf(12)); });",
+                  "    pm.test('Máxima e mínima envolvem abertura e fechamento', () => k.forEach((c) => {",
+                  "      const [o, h, l, cl] = [c[1], c[2], c[3], c[4]].map(parseFloat);",
+                  "      pm.expect(h).to.be.at.least(Math.max(o, cl)); pm.expect(l).to.be.at.most(Math.min(o, cl));",
+                  "    }));",
+                  "    pm.test('Candles consecutivos com intervalo de 1h', () => k.slice(1).forEach((c, i) => pm.expect(c[0] - k[i][0]).to.eql(3600000)));",
+                  "    pm.test('Último candle é o da hora atual', () => pm.expect(Date.now() - k[2][0]).to.be.within(0, 3600000 + 60000));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "BN - negativo: par inexistente",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{binance_url}}/api/v3/ticker/price?symbol=QAQAQAUSDT",
+              "host": [
+                "{{binance_url}}"
+              ],
+              "path": [
+                "api",
+                "v3",
+                "ticker",
+                "price"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "QAQAQAUSDT"
+                }
+              ]
+            },
+            "description": "Erro de negocio com código estavel."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "    pm.test('Código de erro -1121 (símbolo inválido)', () => pm.expect(pm.response.json().code).to.eql(-1121));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "BN - negativo: intervalo inválido",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{binance_url}}/api/v3/klines?symbol=BTCUSDT&interval=7x",
+              "host": [
+                "{{binance_url}}"
+              ],
+              "path": [
+                "api",
+                "v3",
+                "klines"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "BTCUSDT"
+                },
+                {
+                  "key": "interval",
+                  "value": "7x"
+                }
+              ]
+            },
+            "description": "Validacao de parâmetro."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "    pm.test('Código de erro -1120 (intervalo inválido)', () => pm.expect(pm.response.json().code).to.eql(-1120));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "BN - negativo: parâmetro obrigatório ausente",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{binance_url}}/api/v3/klines?symbol=BTCUSDT",
+              "host": [
+                "{{binance_url}}"
+              ],
+              "path": [
+                "api",
+                "v3",
+                "klines"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "BTCUSDT"
+                }
+              ]
+            },
+            "description": "interval é obrigatório em klines."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "    pm.test('Código de erro -1102 (parâmetro obrigatório)', () => pm.expect(pm.response.json().code).to.eql(-1102));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mempool.space (rede Bitcoin)",
+      "description": "Explorador público da rede Bitcoin: blocos, taxas e preço de referência.",
+      "item": [
+        {
+          "name": "MP - altura do último bloco",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{mempool_url}}/blocks/tip/height",
+              "host": [
+                "{{mempool_url}}"
+              ],
+              "path": [
+                "blocks",
+                "tip",
+                "height"
+              ]
+            },
+            "description": "Resposta em texto puro."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    const h = Number(pm.response.text());",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Altura e inteiro acima de 900000', () => { pm.expect(Number.isInteger(h)).to.be.true; pm.expect(h).to.be.above(900000); });",
+                  "    pm.collectionVariables.set('mp_tip', h);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "MP - últimos blocos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{mempool_url}}/v1/blocks",
+              "host": [
+                "{{mempool_url}}"
+              ],
+              "path": [
+                "v1",
+                "blocks"
+              ]
+            },
+            "description": "Hash com zeros a esquerda reflete a prova de trabalho."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    const b = pm.response.json(); const tip = Number(pm.collectionVariables.get('mp_tip'));",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Contrato (JSON Schema) válido', () => pm.response.to.have.jsonSchema({ type: 'array', minItems: 1, items: { type: 'object', required: ['id', 'height', 'timestamp', 'tx_count', 'size'], properties: { id: { type: 'string', pattern: '^0{8}[0-9a-f]{56}$' }, height: { type: 'integer' }, timestamp: { type: 'integer' }, tx_count: { type: 'integer', minimum: 1 } } } }));",
+                  "    pm.test('Alturas consecutivas e decrescentes', () => b.slice(1).forEach((x, i) => pm.expect(x.height).to.eql(b[i].height - 1)));",
+                  "    pm.test('Primeiro bloco coincide com a altura informada (tolerância de 1 bloco)', () => { if (tip) pm.expect(Math.abs(b[0].height - tip)).to.be.at.most(1); });",
+                  "    pm.test('Último bloco minerado há menos de 3 h', () => pm.expect(Date.now() / 1000 - b[0].timestamp).to.be.below(3 * 3600));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "MP - taxas recomendadas",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{mempool_url}}/v1/fees/recommended",
+              "host": [
+                "{{mempool_url}}"
+              ],
+              "path": [
+                "v1",
+                "fees",
+                "recommended"
+              ]
+            },
+            "description": "Taxa mais rápida nunca pode ser menor que a mais lenta."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    const f = pm.response.json();",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Contrato (JSON Schema) válido', () => pm.response.to.have.jsonSchema({ type: 'object', required: ['fastestFee', 'halfHourFee', 'hourFee', 'economyFee', 'minimumFee'], properties: { fastestFee: { type: 'number', minimum: 0 }, halfHourFee: { type: 'number', minimum: 0 }, hourFee: { type: 'number', minimum: 0 }, economyFee: { type: 'number', minimum: 0 }, minimumFee: { type: 'number', minimum: 0 } } }));",
+                  "    pm.test('Ordem: rápida >= 30 min >= 1 h >= econômica >= mínima', () => {",
+                  "      pm.expect(f.fastestFee).to.be.at.least(f.halfHourFee); pm.expect(f.halfHourFee).to.be.at.least(f.hourFee);",
+                  "      pm.expect(f.hourFee).to.be.at.least(f.economyFee); pm.expect(f.economyFee).to.be.at.least(f.minimumFee);",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "MP - preço de referência",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{mempool_url}}/v1/prices",
+              "host": [
+                "{{mempool_url}}"
+              ],
+              "path": [
+                "v1",
+                "prices"
+              ]
+            },
+            "description": "Terceira fonte para o teste de consistência."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    const p = pm.response.json();",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    pm.test('Contrato (JSON Schema) válido', () => pm.response.to.have.jsonSchema({ type: 'object', required: ['time', 'USD', 'EUR'], properties: { time: { type: 'integer' }, USD: { type: 'number', exclusiveMinimum: 0 }, EUR: { type: 'number', exclusiveMinimum: 0 } } }));",
+                  "    pm.test('Preço atualizado nos últimos ' + pm.environment.get('frescor_s') + ' s', () => pm.expect(Date.now() / 1000 - p.time).to.be.below(Number(pm.environment.get('frescor_s'))));",
+                  "    pm.collectionVariables.set('mp_btc_usd', p.USD);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "MP - negativo: endereco inválido",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{mempool_url}}/address/endereco-invalido",
+              "host": [
+                "{{mempool_url}}"
+              ],
+              "path": [
+                "address",
+                "endereco-invalido"
+              ]
+            },
+            "description": "Validacao de entrada."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "    pm.test('Mensagem de endereco inválido', () => pm.expect(pm.response.text()).to.match(/invalid bitcoin address/i));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Consistência entre fontes",
+      "description": "Oráculo cruzado: três fontes independentes devem concordar no preço do BTC.",
+      "item": [
+        {
+          "name": "XC - preço medio Binance e comparacao entre fontes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{binance_url}}/api/v3/avgPrice?symbol=BTCUSDT",
+              "host": [
+                "{{binance_url}}"
+              ],
+              "path": [
+                "api",
+                "v3",
+                "avgPrice"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "BTCUSDT"
+                }
+              ]
+            },
+            "description": "USDT é tratado como USD; o desvio maximo absorve o descolamento normal da stablecoin."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 429) {",
+                  "    const avg = parseFloat(pm.response.json().price);",
+                  "    pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "    const fontes = { CoinGecko: Number(pm.collectionVariables.get('cg_btc_usd')), Binance: Number(pm.collectionVariables.get('bn_btc_usdt')), mempool: Number(pm.collectionVariables.get('mp_btc_usd')), 'Binance média 5 min': avg };",
+                  "    const validas = Object.entries(fontes).filter(([, v]) => v > 0);",
+                  "    const lim = Number(pm.environment.get('desvio_max_pct'));",
+                  "    pm.test('Pelo menos 3 fontes com preço disponível', () => pm.expect(validas.length).to.be.at.least(3));",
+                  "    validas.forEach(([na, va], i) => validas.slice(i + 1).forEach(([nb, vb]) => {",
+                  "      const d = Math.abs(va - vb) / Math.min(va, vb) * 100;",
+                  "      pm.test('BTC/USD ' + na + ' x ' + nb + ': desvio abaixo de ' + lim + '%', () => pm.expect(d).to.be.below(lim));",
+                  "    }));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

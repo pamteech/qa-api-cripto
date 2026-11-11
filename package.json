@@ -1,0 +1,26 @@
+{
+  "name": "qa-api-cripto",
+  "version": "1.0.0",
+  "description": "Testes de contrato, dados e desempenho de APIs públicas de cripto (Postman, Newman e k6)",
+  "scripts": {
+    "colecao": "node scripts/build-collection.mjs",
+    "test:api": "newman run postman/qa-api-cripto.postman_collection.json -e postman/publico.postman_environment.json --delay-request 1500 --timeout-request 15000 -r cli,htmlextra,json --reporter-htmlextra-export reports/newman/index.html --reporter-htmlextra-title \"QA API Cripto - Newman\" --reporter-htmlextra-browserTitle \"QA API Cripto - Newman\" --reporter-json-export reports/newman/resultado.json",
+    "test:api:global": "newman run postman/qa-api-cripto.postman_collection.json -e postman/binance-global.postman_environment.json --delay-request 1500 -r cli",
+    "test:smoke": "mkdir -p reports/k6 && k6 run k6/smoke.js",
+    "test:carga": "mkdir -p reports/k6 && K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_EXPORT=reports/k6/carga-painel.html k6 run k6/carga.js",
+    "painel": "node scripts/montar-painel.mjs",
+    "screenshot": "node scripts/screenshot.mjs",
+    "test": "npm run test:api; npm run test:smoke && npm run test:carga; npm run painel"
+  },
+  "license": "MIT",
+  "type": "commonjs",
+  "devDependencies": {
+    "newman": "^6.2.3",
+    "newman-reporter-htmlextra": "^1.23.1",
+    "playwright": "1.57"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  }
+}

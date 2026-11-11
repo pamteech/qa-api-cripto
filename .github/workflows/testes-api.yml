@@ -1,0 +1,111 @@
+name: Testes de API cripto
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    # Todo dia as 08:00 no horario de Brasilia (11:00 UTC).
+    - cron: '0 11 * * *'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: testes-api-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  testes:
+    name: Newman e k6
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Baixar o repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Configurar k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Testes funcionais (Postman e Newman)
+        id: newman
+        continue-on-error: true
+        run: npm run test:api
+
+      - name: Smoke de desempenho (k6)
+        id: smoke
+        continue-on-error: true
+        run: npm run test:smoke
+
+      - name: Carga leve (k6)
+        id: carga
+        if: steps.smoke.outcome == 'success'
+        continue-on-error: true
+        run: npm run test:carga
+
+      - name: Montar painel
+        if: always()
+        run: npm run painel
+
+      - name: Resumo da execucao
+        if: always()
+        run: |
+          {
+            echo "## Testes de API cripto"
+            echo ""
+            echo "| Etapa | Resultado |"
+            echo "|---|---|"
+            echo "| Newman (funcional) | ${{ steps.newman.outcome }} |"
+            echo "| k6 smoke | ${{ steps.smoke.outcome }} |"
+            echo "| k6 carga leve | ${{ steps.carga.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar relatorios
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relatorios
+          path: reports
+          retention-days: 14
+
+      - name: Preparar artefato do GitHub Pages
+        if: always() && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: reports
+
+      - name: Avaliar resultado
+        if: always()
+        run: |
+          falhou=0
+          for etapa in "newman:${{ steps.newman.outcome }}" "smoke:${{ steps.smoke.outcome }}" "carga:${{ steps.carga.outcome }}"; do
+            nome="${etapa%%:*}"; resultado="${etapa#*:}"
+            if [ "$resultado" = "failure" ]; then echo "Etapa $nome reprovada."; falhou=1; fi
+          done
+          exit $falhou
+
+  publicar:
+    name: GitHub Pages
+    needs: testes
+    if: always() && github.ref == 'refs/heads/main' && needs.testes.result != 'cancelled'
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publicar relatorios
+        id: deployment
+        uses: actions/deploy-pages@v4
