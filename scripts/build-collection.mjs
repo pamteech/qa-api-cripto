@@ -283,7 +283,7 @@ const env = (name, binance) => ({
     { key: 'coingecko_url', value: 'https://api.coingecko.com/api/v3', enabled: true },
     { key: 'binance_url', value: binance, enabled: true },
     { key: 'mempool_url', value: 'https://mempool.space/api', enabled: true },
-    { key: 'limite_ms', value: '3000', enabled: true },
+    { key: 'limite_ms', value: '5000', enabled: true },
     { key: 'frescor_s', value: '900', enabled: true },
     { key: 'desvio_max_pct', value: '2', enabled: true },
   ],

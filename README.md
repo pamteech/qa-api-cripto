@@ -40,7 +40,7 @@ Uma API de preço errada não costuma cair, ela costuma responder **200 com um n
 | Taxa de rede absurda | taxa rápida ≥ 30 min ≥ 1 h ≥ econômica ≥ mínima |
 | Uma fonte diverge das outras | comparação cruzada entre três fontes independentes |
 | Entrada inválida gera dado inventado | casos negativos com status e código de erro esperados |
-| Lentidão | tempo de resposta abaixo de 3 s por requisição e p95 abaixo de 1,5 s na carga |
+| Lentidão ou travamento | no Newman, cada resposta abaixo de 5 s (guarda contra travamento, inclui DNS e TLS da primeira conexão); no k6, p95 abaixo de 1,5 s, que é o critério real de latência |
 
 ### Limite de taxa (HTTP 429)
 
@@ -84,6 +84,7 @@ O workflow [`testes-api.yml`](.github/workflows/testes-api.yml) roda em `ubuntu-
 - **CoinGecko responde 200 com objeto vazio para moeda inexistente** em `/simple/price`, em vez de 404. O mesmo vale para moeda de cotação inválida. A suíte documenta o comportamento e usa como oráculo "não inventar preço".
 - **Preço atual da CoinGecko pode ficar acima da máxima de 24h** em `/coins/markets`, porque os campos são atualizados em momentos diferentes. A suíte aceita 1% de tolerância e registra o motivo.
 - **`api.binance.com` bloqueia IPs dos EUA (HTTP 451).** Quem testa a partir de runners na nuvem precisa usar o endpoint de dados públicos.
+- **Primeira chamada a frio pode passar de 4 s.** Numa execução da CI, o primeiro `GET /ping` da CoinGecko levou 4,8 s somando DNS, TCP e TLS em runner novo. O limite de 3 s reprovou o teste, e a análise mostrou que o oráculo media a conexão, não a API. O limite do Newman passou para 5 s como guarda contra travamento, e a latência passou a ser cobrada no k6, que separa tempo de espera e de conexão.
 - **A CoinGecko pública devolve 429 depois de poucas chamadas seguidas.** Por isso a nova tentativa com espera exponencial e o registro separado.
 
 ## Estrutura
