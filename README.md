@@ -2,7 +2,7 @@
 
 ![Painel de qualidade](docs/painel.png)
 
-[![Testes de API cripto](https://img.shields.io/github/actions/workflow/status/pamteech/qa-api-cripto/testes-api.yml?label=CI&labelColor=0D0B1E&color=39FF88)](https://github.com/pamteech/qa-api-cripto/actions/workflows/testes-api.yml)
+[![Testes de API cripto](https://img.shields.io/github/actions/workflow/status/pamteech/qa-api-cripto/testes-api.yml?label=testes&labelColor=0D0B1E&color=39FF88)](https://github.com/pamteech/qa-api-cripto/actions/workflows/testes-api.yml)
 [![Relatório](https://img.shields.io/badge/relat%C3%B3rio-GitHub%20Pages-A855F7?labelColor=0D0B1E)](https://pamteech.github.io/qa-api-cripto/)
 ![Postman](https://img.shields.io/badge/Postman-Newman-22D3EE?labelColor=0D0B1E)
 ![k6](https://img.shields.io/badge/k6-desempenho-39FF88?labelColor=0D0B1E)
