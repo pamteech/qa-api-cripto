@@ -1,16 +1,16 @@
 # QA API Cripto
 
-[![Testes de API cripto](https://github.com/pamteech/qa-api-cripto/actions/workflows/testes-api.yml/badge.svg)](https://github.com/pamteech/qa-api-cripto/actions/workflows/testes-api.yml)
-[![Relatório](https://img.shields.io/badge/relat%C3%B3rio-GitHub%20Pages-0B1F3A)](https://pamteech.github.io/qa-api-cripto/)
-![Postman](https://img.shields.io/badge/Postman-Newman-1E6B4F)
-![k6](https://img.shields.io/badge/k6-desempenho-1E6B4F)
-![Licença](https://img.shields.io/badge/licen%C3%A7a-MIT-5B6678)
+![Painel de qualidade](docs/painel.png)
+
+[![Testes de API cripto](https://img.shields.io/github/actions/workflow/status/pamteech/qa-api-cripto/testes-api.yml?label=CI&labelColor=0D0B1E&color=39FF88)](https://github.com/pamteech/qa-api-cripto/actions/workflows/testes-api.yml)
+[![Relatório](https://img.shields.io/badge/relat%C3%B3rio-GitHub%20Pages-A855F7?labelColor=0D0B1E)](https://pamteech.github.io/qa-api-cripto/)
+![Postman](https://img.shields.io/badge/Postman-Newman-22D3EE?labelColor=0D0B1E)
+![k6](https://img.shields.io/badge/k6-desempenho-39FF88?labelColor=0D0B1E)
+![Licença](https://img.shields.io/badge/licen%C3%A7a-MIT-22D3EE?labelColor=0D0B1E)
 
 Suíte de testes de API para três fontes públicas de dados de cripto: **CoinGecko**, **Binance** (dados de mercado) e **mempool.space** (rede Bitcoin). Cobre contrato, sanidade dos dados, casos negativos, consistência de preço entre fontes e desempenho sob carga leve. Roda todo dia no GitHub Actions e publica o relatório no GitHub Pages.
 
 **Relatório ao vivo:** https://pamteech.github.io/qa-api-cripto/
-
-![Painel de qualidade](docs/painel.png)
 
 ## O que é testado
 
